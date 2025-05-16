@@ -13,8 +13,10 @@ env/
 outputs/
 *.xlsx
 *.csv
+outputs/*.csv
 
 # OS сміття
 .DS_Store
 Thumbs.db
 "@ | Out-File -Encoding utf8 .gitignore
+

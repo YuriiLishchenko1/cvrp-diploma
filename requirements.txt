@@ -2,3 +2,10 @@ ortools
 numpy
 streamlit
 folium
+streamlit-folium
+csv
+time
+glob
+pathlib
+solver_baseline
+solver_ga
