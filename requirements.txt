@@ -1,2 +1,4 @@
 ortools
 numpy
+streamlit
+folium
