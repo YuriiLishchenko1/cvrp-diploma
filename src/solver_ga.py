@@ -1,111 +1,82 @@
-import random, time, math, numpy as np
+import random, time, math, pathlib
 from utils.cvrp_parser import read_vrp
+from utils.constructive_ls import route_length
 
-def distance(p1, p2):
-    return int(math.hypot(p1[0]-p2[0], p1[1]-p2[1]))
+def solve(file_path, sec_limit=30, pop_size=150, mut_prob=0.2, elit_frac=0.1):
+    cap, coords, demands = read_vrp(str(file_path))
+    depot = 1
+    nodes = [i for i in coords if i != depot]
 
-def solve_ga(file_path, sec_limit=120, pop_size=150):
-    cap, coords, demands = read_vrp(file_path)
-    nodes = list(coords.keys())[1:]          # без depot=1
-    dist = {(i, j): distance(coords[i], coords[j]) for i in coords for j in coords}
-    
-    gen = 0
+    # стартове рішення: Savings
+    from utils.constructive_ls import savings_initial
+    init_routes = savings_initial(cap, coords, demands, depot)
+    best_flat = [n for r in init_routes for n in r if n != depot]
 
-    def split_by_capacity(chrom):
-        route, load, routes = [1], 0, []
+    def decode(chrom):
+        routes, load, r = [], 0, [depot]
         for n in chrom:
             if load + demands[n] <= cap:
-                route.append(n); load += demands[n]
+                r.append(n); load += demands[n]
             else:
-                route.append(1); routes.append(route)
-                route, load = [1, n], demands[n]
-        route.append(1); routes.append(route)
+                r.append(depot); routes.append(r)
+                r, load = [depot, n], demands[n]
+        r.append(depot); routes.append(r)
         return routes
 
-    def route_cost(rt):
-        return sum(dist[(rt[i], rt[i+1])] for i in range(len(rt)-1))
+    def cost(chrom):
+        return sum(route_length(r, coords) for r in decode(chrom))
 
-    def two_opt(route):
-        best = route
-        improved = True
-        while improved:
-            improved = False
-            for i in range(1, len(best)-2):
-                for j in range(i+1, len(best)-1):
-                    if j-i == 1: continue
-                    new = best[:i] + best[i:j][::-1] + best[j:]
-                    if route_cost(new) < route_cost(best):
-                        best, improved = new, True
-        return best
+    # генетика
+    population = []
+    for _ in range(pop_size):
+        perm = best_flat[:]
+        random.shuffle(perm)
+        population.append((perm, cost(perm)))
 
-    def tournament(pop, k=3):
-        return min(random.sample(pop, k), key=fitness)
-
-    def fitness(chrom):
-        rts = split_by_capacity(chrom)
-        return sum(route_cost(r) for r in rts)
-
-    # ------- GA -------
-    pop = [random.sample(nodes, len(nodes)) for _ in range(pop_size)]
-    best = min(pop, key=fitness)
     t0 = time.time()
-    
-    ELITE = 5                     # <– 1. elitism
-    
     while time.time() - t0 < sec_limit:
-        # ----------- селекція -----------
-        pop.sort(key=fitness)              # від найкращого до гіршого
-        elites  = pop[:ELITE]              # елітні особини
-        parents = [tournament(pop) for _ in range(pop_size//2)]
+        # відбір еліти
+        population.sort(key=lambda x: x[1])
+        elite_cut = int(elit_frac * pop_size)
+        new_pop = population[:elite_cut]
 
-        # ----------- кросовер + мутація -----------
-        children = []
-        while len(children) < pop_size//2:
-            p1, p2 = random.sample(parents, 2)
-            cut = random.randint(1, len(nodes) - 2)
-            child = p1[:cut] + [g for g in p2 if g not in p1[:cut]]
-
+        # кросовер + мутація
+        while len(new_pop) < pop_size:
+            p1, _ = random.choice(population[:pop_size//2])
+            p2, _ = random.choice(population[:pop_size//2])
+            # two-point crossover
+            a, b = sorted(random.sample(range(len(p1)), 2))
+            child = [None]*len(p1)
+            child[a:b] = p1[a:b]
+            fill = [x for x in p2 if x not in child[a:b]]
+            ptr = 0
+            for i in range(len(child)):
+                if child[i] is None:
+                    child[i] = fill[ptr]
+                    ptr += 1
             # мутація
-            if random.random() < 0.2:
-                i, j = random.sample(range(len(nodes)), 2)
+            if random.random() < mut_prob:
+                i, j = random.sample(range(len(child)), 2)
                 child[i], child[j] = child[j], child[i]
 
-            children.append(child)
+            new_pop.append((child, cost(child)))
 
-        new_pop = children + elites        # ← готова нова популяція
-        pop = new_pop
+        population = new_pop
 
-        # ----------- відслідковуємо прогрес -----------
-        cand = min(pop, key=fitness)
-        if fitness(cand) < fitness(best):
-            best = cand
+    # після таймауту найкращий
+    best_perm, best_cost = min(population, key=lambda x: x[1])
+    routes = decode(best_perm)
 
-        if gen % 50 == 0:
-            print(f"gen={gen:4}  best_dist={fitness(best):.1f}")
-
-        gen += 1
-
-
-
-    best_routes = [two_opt(r) for r in split_by_capacity(best)]
-    total = sum(route_cost(r) for r in best_routes)
     return {
-        "file": file_path.split("\\")[-1],
-        "vehicles": len(best_routes),
-        "distance": total,
-        "time_sec": round(time.time() - t0, 2),
-        "routes": best_routes,
+        "file": pathlib.Path(file_path).name,
+        "algo": "Genetic GA",
+        "vehicles": len(routes),
+        "distance": best_cost,
+        "time_sec": round(time.time()-t0, 2),
+        "routes": routes
     }
-    
 
-if __name__ == "__main__":
-    import sys, json, argparse
-    ap = argparse.ArgumentParser()
-    ap.add_argument("file")
-    ap.add_argument("--time", type=int, default=60)
-    ap.add_argument("--pop",  type=int, default=100)
-    args = ap.parse_args()
-
-    res = solve_ga(args.file, args.time, args.pop)
-    print(json.dumps(res, indent=2))
-
+if __name__=="__main__":
+    import sys, json
+    fp = sys.argv[1] if len(sys.argv)>1 else "data/cvrplib/A-n32-k5.vrp"
+    print(json.dumps(solve(fp), indent=2))
