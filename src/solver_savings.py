@@ -2,7 +2,8 @@
 from __future__ import annotations
 import time, pathlib, json
 import numpy as np
-from src.utils.cvrp_parser import read_vrp    
+from src.utils.cvrp_parser import read_vrp
+import streamlit as st   
 
 
 def _distance_matrix(coords: dict[int, tuple[float, float]]) -> np.ndarray:

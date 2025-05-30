@@ -3,6 +3,7 @@ import random, math, time, json, sys, pathlib
 from utils.cvrp_parser import read_vrp
 from utils.constructive_ls import savings_initial, route_length
 from utils.local_2opt import two_opt
+import streamlit as st
 
 # ---- Допоміжні функції ----
 def total_len(routes, coords):
@@ -132,6 +133,8 @@ def solve(file_path: str | pathlib.Path, sec_limit=30):
     T = 0.2 * best_len
 
     while time.time() - start < sec_limit:
+        if st.session_state.get("stop_flag"):  # ⛔ якщо користувач натиснув "Зупинити"
+            break
         it += 1
         if strategy == 'savings':
             break

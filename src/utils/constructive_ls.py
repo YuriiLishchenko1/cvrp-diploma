@@ -4,6 +4,7 @@ from utils.cvrp_parser import read_vrp
 from math import hypot
 from collections import defaultdict
 import math
+import streamlit as st
 # --- ваші вже наявні функції ---
 def eucl(a, b):
     return hypot(a[0]-b[0], a[1]-b[1])
@@ -95,4 +96,3 @@ def greedy_initial(cap, coords, demands, depot=1):
         route.append(depot)
         routes.append(route)
     return routes
-

@@ -4,6 +4,7 @@ import pathlib, sys, time, json
 import numpy as np
 from utils.cvrp_parser import read_vrp
 from ortools.constraint_solver import pywrapcp, routing_enums_pb2
+import streamlit as st
 
 # Має приймати file_path, sec_limit та fs_strategy
 def solve(file_path: str, sec_limit: int = 30, fs_strategy: str = "SAVINGS"):
@@ -67,6 +68,8 @@ def solve(file_path: str, sec_limit: int = 30, fs_strategy: str = "SAVINGS"):
 
     routes, total = [], 0
     for v in range(n):
+        if st.session_state.get("stop_flag"):  # ⛔ якщо користувач натиснув "Зупинити"
+            break
         idx = routing.Start(v)
         # якщо цей транспортний засіб нікого не обслуговує — пропускаємо
         if routing.IsEnd(sol.Value(routing.NextVar(idx))):
@@ -91,7 +94,6 @@ def solve(file_path: str, sec_limit: int = 30, fs_strategy: str = "SAVINGS"):
 
 if __name__ == "__main__":
     fp = sys.argv[1] if len(sys.argv) > 1 else "data/cvrplib/A-n32-k5.vrp"
-    # тепер можна передати і стратегію, напр.: python solver_baseline.py my.vrp 60 PATH_CHEAPEST_ARC
     sec = int(sys.argv[2]) if len(sys.argv) > 2 else 30
     strat = sys.argv[3] if len(sys.argv) > 3 else "SAVINGS"
     print(json.dumps(solve(fp, sec, strat), indent=2))

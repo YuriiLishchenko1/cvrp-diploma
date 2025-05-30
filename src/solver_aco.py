@@ -14,7 +14,7 @@ from typing import List
 from utils.cvrp_parser import read_vrp
 from utils.constructive_ls import route_length
 from utils.local_2opt import two_opt   # існуючий 2-opt
-
+import streamlit as st
 def solve(
     file_path: str | pathlib.Path,
     sec_limit: int = 30,
@@ -48,6 +48,8 @@ def solve(
 
     # головний цикл
     while time.time() - t_start < sec_limit:
+        if st.session_state.get("stop_flag"):  # ⛔ якщо користувач натиснув "Зупинити"
+        break
         all_solutions = []
 
         for ant in range(n_ants):

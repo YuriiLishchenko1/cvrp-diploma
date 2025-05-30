@@ -2,64 +2,120 @@
 #  src/boosted_algos.py
 # ───────────────────────────────────────────
 from __future__ import annotations
-import random, math, time, json, pathlib, sys
+import random, math
+import time, json, pathlib, sys
+
 from utils.cvrp_parser import read_vrp
 from utils.constructive_ls import route_length, greedy_initial
-from utils.local_2opt   import two_opt
 from utils.local_move   import relocate_star     
+import streamlit as st
 # ────────────────────────────────────────────────────────
-def ruin(routes, k):
-    """виймає k випадкових клієнтів із усіх маршрутів"""
+
+def ruin(routes: list[list[int]], k: int) -> tuple[list[list[int]], list[int]]:
     flat = [v for r in routes for v in r[1:-1]]
-    rm   = set(random.sample(flat, k))
+    rm = set(random.sample(flat, k))
     newR = []
     for r in routes:
         remain = [v for v in r if v not in rm]
-        if len(remain) > 2: newR.append(remain)
+        if len(remain) > 2:
+            newR.append(remain)
     return newR, list(rm)
 
-def regret_insert(routes, pool, cap, demand, coords):
-    """Regret-2 вставка доки пул не порожній"""
+def fallback_insert(routes: list[list[int]],
+                    v:      int,
+                    cap:    int,
+                    demand: dict[int,int],
+                    coords: dict[int,tuple[float,float]]):
+    depot = routes[0][0]
+    for r in routes:
+        load = sum(demand[x] for x in r[1:-1])
+        if load + demand[v] <= cap:
+            r.append(v)
+            return
+    routes.append([depot, v, depot])
+
+def regret_insert_with_fallback(routes: list[list[int]],
+                                pool:   list[int],
+                                cap:    int,
+                                demand: dict[int,int],
+                                coords: dict[int,tuple[float,float]]):
+    depot = routes[0][0]
     while pool:
-        best, best_r, best_pos = math.inf, None, None
-        second = math.inf
+        best, second = math.inf, math.inf
+        best_r = None
+
         for v in pool:
             for ri, r in enumerate(routes):
                 load = sum(demand[x] for x in r[1:-1])
-                if load + demand[v] > cap: continue
+                if load + demand[v] > cap:
+                    continue
                 for pos in range(1, len(r)):
-                    add = (dist(r[pos-1], v, coords) +
-                           dist(v, r[pos], coords) -
-                           dist(r[pos-1], r[pos], coords))
+                    add = (dist(r[pos-1], v, coords)
+                         + dist(v, r[pos], coords)
+                         - dist(r[pos-1], r[pos], coords))
                     if add < best:
-                        second = best; best = add; best_r = (ri, pos, v)
+                        second, best = best, add
+                        best_r = (ri, pos, v)
                     elif add < second:
                         second = add
-        Δ = (second - best) if second < math.inf else best
-        ri, pos, v = best_r
-        routes[ri].insert(pos, v)
-        pool.remove(v)
 
-def dist(a,b,C): return math.hypot(C[a][0]-C[b][0], C[a][1]-C[b][1])
+        if best_r:
+            ri, pos, v = best_r
+            routes[ri].insert(pos, v)
+            pool.remove(v)
+        else:
+            v = pool.pop(0)
+            fallback_insert(routes, v, cap, demand, coords)
 
-# ────────────────────────────────────────────────────────
-def solve_lns_boost(file_path:str|pathlib.Path, sec_limit:int=30):
+def dist(a: int, b: int, C: dict[int,tuple[float,float]]) -> float:
+    return math.hypot(C[a][0]-C[b][0], C[a][1]-C[b][1])
+
+def enforce_capacity(routes: list[list[int]],
+                     cap:    int,
+                     demand: dict[int,int]) -> None:
+    """Якщо якийсь маршрут перевантажений — винести клієнтів у нові маршрути."""
+    depot = routes[0][0]
+    i = 0
+    # проходимо по списку, додаємо нові маршрути на ходу
+    while i < len(routes):
+        r = routes[i]
+        load = sum(demand[x] for x in r[1:-1])
+        if load <= cap:
+            i += 1
+            continue
+        # поки перевантажений, виносимо останнього клієнта в новий маршрут
+        v = r.pop()  
+        # не забуваємо, що маршрут закінчується депо
+        if v == depot:
+            # якщо випадково вирвали депо — відновлюємо
+            continue
+        routes.append([depot, v, depot])
+        # залишаємо i на місці, щоб перевірити ще раз цей маршрут
+    # всі клієнти покриті, всі маршрути в межах cap
+
+def solve_lns_boost(file_path: str|pathlib.Path, sec_limit: int = 30):
     cap, coords, dem = read_vrp(str(file_path))
-    routes = greedy_initial(cap, coords, dem)
-    best, best_len = routes, sum(route_length(r,coords) for r in routes)
+    best = greedy_initial(cap, coords, dem)
+    best_len = sum(route_length(r,coords) for r in best)
 
-    psi_choices = (0.10, 0.15, 0.20)  # менш агресивна руйнація
+    psi_choices = (0.10, 0.15, 0.20)
     t0 = time.time()
     iter_ = 0
+
     while time.time() - t0 < sec_limit:
+        if st.session_state.get("stop_flag"):  # ⛔ якщо користувач натиснув "Зупинити"
+            break
         iter_ += 1
         ψ = random.choice(psi_choices)
-        k  = max(1, int(ψ * (len(coords)-1)))
+        k = max(1, int(ψ * (len(coords)-1)))
+
         cur, pool = ruin([r[:] for r in best], k)
+        regret_insert_with_fallback(cur, pool, cap, dem, coords)
 
-        regret_insert(cur, pool, cap, dem, coords)
+        # ось тут перевіряємо й виправляємо capacity
+        enforce_capacity(cur, cap, dem)
 
-        relocate_star(cur, coords, dem, cap)  # без 2-opt, тільки relocate
+        relocate_star(cur, coords, dem, cap)
 
         s = sum(route_length(r,coords) for r in cur)
         if s < best_len:
@@ -78,7 +134,8 @@ def solve_lns_boost(file_path:str|pathlib.Path, sec_limit:int=30):
 if __name__ == "__main__":
     fp  = sys.argv[1] if len(sys.argv)>1 else "data/cvrplib/A-n32-k5.vrp"
     sec = int(sys.argv[2]) if len(sys.argv)>2 else 30
-    print(json.dumps(solve(fp, sec), indent=2))
+    print(json.dumps(solve_lns_boost(fp, sec), indent=2))
+
 
 
 # helper

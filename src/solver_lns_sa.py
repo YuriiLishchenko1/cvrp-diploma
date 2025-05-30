@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Large-Neighbourhood Search + Simulated Annealing для CVRP.
 Запуск окремо:
@@ -7,19 +9,18 @@ Large-Neighbourhood Search + Simulated Annealing для CVRP.
     2. цикл до time-limit:
            • destroy: 20 % випадкових клієнтів
            • repair : cheapest-insertion
-           • local  : 2-opt кожного зміненого маршруту
            • accept : SA-критерій
-    3. повертає json, сумісний з іншими solver-ами
+    3. локальна 2-opt на кращому рішенні
+    4. повертає json, сумісний з іншими solver-ами
 """
 
-from __future__ import annotations
-import random, math, time, json, pathlib, sys
+import random, math, time, json, pathlib, sys, re
 from copy import deepcopy
 from collections import defaultdict
-
+import streamlit as st
 from utils.cvrp_parser   import read_vrp
 from utils.constructive_ls import savings_initial, route_length
-from utils.local_2opt    import two_opt     # -- ваша 2-opt функція
+from utils.local_2opt    import two_opt
 
 
 # ────────────────────────────────────────────────────────────
@@ -42,7 +43,7 @@ def cheapest_insert(routes, customer, coords, demands,
     """вставляє client у позицію з мінімальним збільшенням довжини"""
     best_inc, best_r, best_pos = math.inf, None, None
     for r in routes:
-        load = sum(demands[i] for i in r)          # ∑ demand у маршруті
+        load = sum(demands[i] for i in r if i != depot)  # ∑ demand у маршруті
         if load + demands[customer] > cap:
             continue
         for pos in range(1, len(r)):
@@ -68,15 +69,32 @@ def total_len(routes, coords):
     return sum(route_length(r, coords) for r in routes)
 
 
+def extract_max_vehicles(file_path: str) -> int | None:
+    try:
+        with open(file_path, encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("COMMENT") and "No of trucks:" in line:
+                    match = re.search(r"No of trucks:\s*(\d+)", line)
+                    if match:
+                        return int(match.group(1))
+    except Exception:
+        pass
+    return None
+
+
 # ────────────────────────────────────────────────────────────
 def solve(file_path:str|pathlib.Path,
           sec_limit:int = 30,
           destroy_frac:float = .20,
           T0:float = 1000,
-          cooling:float = .995):
+          cooling:float = .995,
+          max_vehicles: int | None = None):
 
     cap, coords, demands = read_vrp(str(file_path))
     depot = 1
+
+    if max_vehicles is None:
+        max_vehicles = extract_max_vehicles(str(file_path))
 
     best_routes = savings_initial(cap, coords, demands, depot)
     best_len    = total_len(best_routes, coords)
@@ -87,29 +105,31 @@ def solve(file_path:str|pathlib.Path,
 
     start = time.time()
     while time.time() - start < sec_limit:
-        # ---------- RUIN ----------
+        if st.session_state.get("stop_flag"):
+            break
         k = max(1, int(destroy_frac * (len(coords)-1)))
         new_routes = deepcopy(cur_routes)
         removed = remove_random(new_routes, k, depot)
 
-        # ---------- RECREATE ----------
         for cust in removed:
             cheapest_insert(new_routes, cust, coords, demands, cap, depot)
 
-        # локальна 2-opt лише для «довгих» маршрутів
-        for r in new_routes:
-            if len(r) > 4:
-                two_opt(r, coords)
+        if max_vehicles is not None and len(new_routes) > max_vehicles:
+            continue
 
         new_len = total_len(new_routes, coords)
 
-        # ---------- SA acceptance ----------
-        if new_len < cur_len or random.random() < math.exp((cur_len-new_len)/T):
+        if new_len < cur_len or random.random() < math.exp(-(new_len - cur_len) / T):
             cur_routes, cur_len = new_routes, new_len
-            if cur_len < best_len:
-                best_routes, best_len = cur_routes, cur_len
+            if new_len < best_len:
+                best_routes, best_len = deepcopy(new_routes), new_len
 
-        T *= cooling     # охолодження
+        T *= cooling
+
+    for r in best_routes:
+        if len(r) > 4:
+            two_opt(r, coords)
+    best_len = total_len(best_routes, coords)
 
     return {
         "file"     : pathlib.Path(file_path).name,
