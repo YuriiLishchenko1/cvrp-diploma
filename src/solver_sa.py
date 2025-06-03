@@ -18,7 +18,11 @@ def cost(chrom, coords, cap, demands, depot):
     return sum(route_length(r, coords) for r in _decode(chrom, cap, demands, depot))
 
 def solve(file_path, sec_limit=30, T0=None, cool=0.995):
-    cap, coords, demands = read_vrp(str(file_path))
+    data = read_vrp(file_path)
+    cap     = data["capacity"]
+    coords  = data["coords"]
+    demands = data["demand"]
+    depot   = data["depot_id"]
     depot = 1
     nodes = [i for i in coords if i != depot]
 

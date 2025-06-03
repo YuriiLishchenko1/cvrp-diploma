@@ -19,8 +19,8 @@ from copy import deepcopy
 from collections import defaultdict
 import streamlit as st
 from utils.cvrp_parser   import read_vrp
-from utils.constructive_ls import savings_initial, route_length
-from utils.local_2opt    import two_opt
+from utils.constructive_ls import savings_initial, route_length, two_opt, inter_route_swap, inter_route_relocate
+
 
 
 # ────────────────────────────────────────────────────────────
@@ -83,20 +83,27 @@ def extract_max_vehicles(file_path: str) -> int | None:
 
 
 # ────────────────────────────────────────────────────────────
-def solve(file_path:str|pathlib.Path,
-          sec_limit:int = 30,
-          destroy_frac:float = .20,
-          T0:float = 1000,
-          cooling:float = .995,
+def solve(file_path: str | pathlib.Path,
+          sec_limit: int = 30,
+          destroy_frac: float = .20,
+          T0: float = 1000,
+          cooling: float = .995,
           max_vehicles: int | None = None):
 
-    cap, coords, demands = read_vrp(str(file_path))
+    data = read_vrp(file_path)
+    cap     = data["capacity"]
+    coords  = data["coords"]
+    demands = data["demand"]
+    depot   = data["depot_id"]
     depot = 1
 
     if max_vehicles is None:
-        max_vehicles = extract_max_vehicles(str(file_path))
+        max_vehicles = data.get("num_vehicles")
+    print("🛻 Num vehicles from parser:", data.get("num_vehicles"))
 
-    best_routes = savings_initial(cap, coords, demands, depot)
+    
+    best_routes = savings_initial(cap, coords, demands, depot, max_vehicles=max_vehicles)
+
     best_len    = total_len(best_routes, coords)
 
     cur_routes  = deepcopy(best_routes)
@@ -107,22 +114,29 @@ def solve(file_path:str|pathlib.Path,
     while time.time() - start < sec_limit:
         if st.session_state.get("stop_flag"):
             break
-        k = max(1, int(destroy_frac * (len(coords)-1)))
+
+        k = max(1, int(destroy_frac * (len(coords) - 1)))
         new_routes = deepcopy(cur_routes)
         removed = remove_random(new_routes, k, depot)
 
         for cust in removed:
             cheapest_insert(new_routes, cust, coords, demands, cap, depot)
 
-        if max_vehicles is not None and len(new_routes) > max_vehicles:
-            continue
-
         new_len = total_len(new_routes, coords)
-
+        
+        # ❗ Strict check after insertion
+        if max_vehicles is not None and len(new_routes) > max_vehicles:
+            penalty = (len(new_routes) - max_vehicles) * 10000
+            new_len += penalty
+        
         if new_len < cur_len or random.random() < math.exp(-(new_len - cur_len) / T):
             cur_routes, cur_len = new_routes, new_len
             if new_len < best_len:
                 best_routes, best_len = deepcopy(new_routes), new_len
+
+            cur_len = total_len(cur_routes, coords)
+            if cur_len < best_len:
+                best_routes, best_len = deepcopy(cur_routes), cur_len
 
         T *= cooling
 
@@ -131,13 +145,14 @@ def solve(file_path:str|pathlib.Path,
             two_opt(r, coords)
     best_len = total_len(best_routes, coords)
 
+
     return {
-        "file"     : pathlib.Path(file_path).name,
-        "algo"     : "LNS-SA",
-        "vehicles" : len(best_routes),
-        "distance" : int(best_len),
-        "time_sec" : round(time.time()-start,2),
-        "routes"   : best_routes
+        "file": pathlib.Path(file_path).name,
+        "algo": "LNS-SA",
+        "vehicles": len(best_routes),
+        "distance": int(best_len),
+        "time_sec": round(time.time() - start, 2),
+        "routes": best_routes
     }
 
 

@@ -30,7 +30,11 @@ def tournament_selection(pop, k=3):
     return min(random.sample(pop, k), key=lambda x: x[1])[0]
 
 def solve(file_path, sec_limit=30, pop_size=150, mut_prob=0.2):
-    cap, coords, demands = read_vrp(str(file_path))
+    data = read_vrp(file_path)
+    cap     = data["capacity"]
+    coords  = data["coords"]
+    demands = data["demand"]
+    depot   = data["depot_id"]
     depot = 1
     nodes = [i for i in coords if i != depot]
 

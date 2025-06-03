@@ -1,4 +1,3 @@
-
 streamlit
 streamlit-folium
 folium
@@ -6,3 +5,4 @@ ortools
 pandas
 numpy
 matplotlib
+openpyxl>=3.1.0

@@ -3,184 +3,32 @@ import random
 import time
 import os
 import streamlit as st
+from utils.cvrp_parser import read_vrp
 
 def load_cvrp_instance(file_path):
     """
-    Load a CVRP instance from a file. Supports TSPLIB format and similar.
-    Returns a dictionary with keys: dimension, capacity, num_vehicles, coords, demand, depot_id, dist_matrix.
+    Wrapper around `read_vrp` to produce a full CVRP instance dict with distance matrix.
     """
-    dimension = 0
-    capacity = None
-    num_vehicles = None
-    coords = {}
-    demands = {}
-    depot_id = None
-    with open(file_path, 'r') as f:
-        lines = iter(f.readlines())
-        for raw_line in lines:
-            line = raw_line.strip()
-            if not line:
-                continue
-            parts = line.split()
-            key = parts[0].upper()
-            # Skip unneeded keywords
-            if key in ("NAME", "TYPE", "COMMENT", "EDGE_WEIGHT_TYPE"):
-                continue
-            if key == "DIMENSION":
-                for token in parts:
-                    if token.isdigit():
-                        dimension = int(token)
-                        break
-                continue
-            if key == "CAPACITY":
-                for token in parts:
-                    if token.isdigit():
-                        capacity = int(token)
-                        break
-                continue
-            if key in ("VEHICLES", "VEHICLE"):
-                # Handle explicit vehicles info (non-TSPLIB formats)
-                if key == "VEHICLE" and len(parts) == 1:
-                    # Next lines might contain "NUMBER CAPACITY" header and values
-                    next_line = next(lines).strip()
-                    if next_line.replace(" ", "").isalpha():
-                        values_line = next(lines).strip()
-                    else:
-                        values_line = next_line
-                    val_parts = values_line.split()
-                    if len(val_parts) >= 2:
-                        try:
-                            num_vehicles = int(val_parts[0])
-                        except:
-                            num_vehicles = None
-                        try:
-                            capacity = int(val_parts[1])
-                        except:
-                            pass
-                    # Skip possible empty or header line
-                    header_line = ""
-                    try:
-                        header_line = next(lines).strip()
-                    except StopIteration:
-                        header_line = ""
-                    if header_line == "" or not header_line[0].isdigit():
-                        # Skip header if present, then read data lines
-                        for data_line in lines:
-                            dl = data_line.strip()
-                            if not dl:
-                                continue
-                            parts_data = dl.split()
-                            if not parts_data or not parts_data[0].isdigit():
-                                break
-                            node_id = int(parts_data[0])
-                            if len(parts_data) >= 4:
-                                x = float(parts_data[1]); y = float(parts_data[2])
-                                demand = int(parts_data[3])
-                            else:
-                                continue
-                            coords[node_id] = (x, y)
-                            demands[node_id] = demand
-                            if node_id == 0 or depot_id is None:
-                                if demand == 0:
-                                    depot_id = node_id
-                        break  # break out of outer loop after reading data
-                    else:
-                        # If no explicit header, treat this line as first data
-                        parts_data = header_line.split()
-                        if parts_data and parts_data[0].isdigit():
-                            node_id = int(parts_data[0])
-                            if len(parts_data) >= 4:
-                                x = float(parts_data[1]); y = float(parts_data[2])
-                                demand = int(parts_data[3])
-                            else:
-                                continue
-                            coords[node_id] = (x, y)
-                            demands[node_id] = demand
-                            if node_id == 0 or depot_id is None:
-                                if demand == 0:
-                                    depot_id = node_id
-                            for data_line in lines:
-                                dl = data_line.strip()
-                                if not dl:
-                                    continue
-                                parts_data = dl.split()
-                                if not parts_data or not parts_data[0].isdigit():
-                                    break
-                                node_id = int(parts_data[0])
-                                if len(parts_data) >= 4:
-                                    x = float(parts_data[1]); y = float(parts_data[2])
-                                    demand = int(parts_data[3])
-                                else:
-                                    continue
-                                coords[node_id] = (x, y)
-                                demands[node_id] = demand
-                                if node_id == 0 or depot_id is None:
-                                    if demand == 0:
-                                        depot_id = node_id
-                            break  # break outer loop after reading
-                else:
-                    # Format like "VEHICLES : 5"
-                    for token in parts:
-                        if token.isdigit():
-                            num_vehicles = int(token)
-                            break
-                continue
-            if key == "NODE_COORD_SECTION":
-                for _ in range(dimension):
-                    coord_line = next(lines).strip()
-                    while coord_line == "":
-                        coord_line = next(lines).strip()
-                    parts2 = coord_line.split()
-                    node_id = int(parts2[0])
-                    x = float(parts2[1]); y = float(parts2[2])
-                    coords[node_id] = (x, y)
-                continue
-            if key == "DEMAND_SECTION":
-                for _ in range(dimension):
-                    dem_line = next(lines).strip()
-                    while dem_line == "":
-                        dem_line = next(lines).strip()
-                    parts2 = dem_line.split()
-                    node_id = int(parts2[0])
-                    dmd = int(parts2[1])
-                    demands[node_id] = dmd
-                continue
-            if key == "DEPOT_SECTION":
-                depot_line = next(lines).strip()
-                while depot_line:
-                    val = int(depot_line.split()[0])
-                    if val == -1:
-                        break
-                    depot_id = val
-                    depot_line = next(lines).strip()
-                continue
-            if key == "EOF":
-                break
-    if dimension == 0:
-        if coords:
-            max_id = max(coords.keys())
-            dimension = max_id + 1 if 0 in coords else max_id
-    if depot_id is None:
-        depot_id = 1  # default to 1 if not specified
-    if depot_id in demands and demands[depot_id] != 0:
-        demands[depot_id] = 0
-    # Build distance matrix
-    max_index = max(coords.keys()) if coords else 0
+    data = read_vrp(file_path)
+    cap     = data["capacity"]
+    coords  = data["coords"]
+    demands = data["demand"]
+    depot   = data["depot_id"]
+
+    max_index = max(coords.keys())
     size = max_index + 1
     dist_matrix = [[0.0] * size for _ in range(size)]
     for i, (x1, y1) in coords.items():
         for j, (x2, y2) in coords.items():
-            if i == j:
-                dist_matrix[i][j] = 0.0
-            else:
-                dist_matrix[i][j] = math.hypot(x2 - x1, y2 - y1)
+            dist_matrix[i][j] = math.hypot(x2 - x1, y2 - y1) if i != j else 0.0
+
     return {
-        "dimension": dimension,
-        "capacity": capacity,
-        "num_vehicles": num_vehicles,
+        "dimension": size,
+        "capacity": cap,
+        "num_vehicles": None,  # Optional field, can be set later
         "coords": coords,
         "demand": demands,
-        "depot_id": depot_id,
+        "depot_id": depot,
         "dist_matrix": dist_matrix
     }
 

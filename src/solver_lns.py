@@ -8,8 +8,7 @@ from copy import deepcopy
 import streamlit as st
 
 from utils.cvrp_parser import read_vrp
-from utils.constructive_ls import savings_initial, route_length
-from utils.local_2opt import two_opt
+from utils.constructive_ls import savings_initial, route_length, two_opt
 
 def remove_random(routes: list[list[int]], k: int, depot: int = 1) -> set[int]:
     """
@@ -77,7 +76,11 @@ def solve(
     destroy_frac: float = 0.20
 ) -> dict:
     # 1) Прочитати інстанс
-    cap, coords, demands = read_vrp(str(file_path))
+    data = read_vrp(file_path)
+    cap     = data["capacity"]
+    coords  = data["coords"]
+    demands = data["demand"]
+    depot   = data["depot_id"]
     depot = 1
     n_clients = len(coords) - 1
 

@@ -132,7 +132,11 @@ def solve(
     - candidate list size
     - explicit aspiration rule
     """
-    cap, coords, demands = read_vrp(str(file_path))
+    data = read_vrp(file_path)
+    cap     = data["capacity"]
+    coords  = data["coords"]
+    demands = data["demand"]
+    depot   = data["depot_id"]
     depot = 1
 
     # 1) Initial solution: Clarke–Wright Savings
@@ -243,3 +247,4 @@ if __name__ == "__main__":
     import sys, json
     fp = sys.argv[1] if len(sys.argv)>1 else "data/cvrplib/A-n32-k5.vrp"
     print(json.dumps(solve(fp), indent=2))
+

@@ -9,7 +9,12 @@ import streamlit as st
 # Має приймати file_path, sec_limit та fs_strategy
 def solve(file_path: str, sec_limit: int = 30, fs_strategy: str = "SAVINGS"):
     # Парсимо файл
-    cap, coords, demands = read_vrp(str(file_path))
+    data = read_vrp(file_path)
+    cap     = data["capacity"]
+    coords  = data["coords"]
+    demands = data["demand"]
+    depot   = data["depot_id"]
+
     n, depot = len(coords), 1
 
     # Попередньо обчислюємо відстані

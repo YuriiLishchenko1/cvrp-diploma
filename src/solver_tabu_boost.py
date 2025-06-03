@@ -19,7 +19,11 @@ def solve(
     n_restarts=3,
     seed_base=42
 ):
-    cap, coords, demands = read_vrp(str(file_path))
+    data = read_vrp(file_path)
+    cap     = data["capacity"]
+    coords  = data["coords"]
+    demands = data["demand"]
+    depot   = data["depot_id"]
     depot = 1
 
     def decode(chrom):

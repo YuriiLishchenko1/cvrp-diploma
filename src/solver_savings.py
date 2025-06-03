@@ -21,7 +21,11 @@ def solve(file_path: str, sec_limit: int | None = None) -> dict:
     sec_limit не потрібен — працює миттєво.
     """
     t0 = time.time()
-    cap, coords, demands = read_vrp(str(file_path))
+    data = read_vrp(file_path)
+    cap     = data["capacity"]
+    coords  = data["coords"]
+    demands = data["demand"]
+    depot   = data["depot_id"]
     depot = 1
 
     clients = [i for i in coords if i != depot]
